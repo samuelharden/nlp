@@ -1,4 +1,4 @@
-import os
+emport os
 import re
 import pickle
 import nltk
@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 from nltk.corpus import stopwords
 stop = stopwords.words('english')
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+import json
+from pprint import pprint
 
 # Noun Part of Speech Tags used by NLTK
 # More can be found here
@@ -34,6 +36,8 @@ def clean_document(document):
 
     # Remove extra whitespace
     document = ' '.join(document.split())
+    document.lower()
+    remove_stop_words(document)
     return document
 
 def remove_stop_words(document):
@@ -63,7 +67,7 @@ def merge_acronyms(s):
         s = s.replace(a, a.replace('.',''))
     return s
 
-def rank_sentences(doc, doc_matrix, feature_names, top_n=3):
+def rank_sentences(doc, abs_sent, doc_matrix, feature_names, top_n=2):
     """Returns top_n sentences. Theses sentences are then used as summary
     of document.
 
@@ -83,13 +87,12 @@ def rank_sentences(doc, doc_matrix, feature_names, top_n=3):
     tfidf_sent = [[doc_matrix[feature_names.index(w.lower())]
                    for w in sent if w.lower() in feature_names]
                  for sent in sentences]
-
     # Calculate Sentence Values
     doc_val = sum(doc_matrix)
     sent_values = [sum(sent) / doc_val for sent in tfidf_sent]
 
     # Apply Similariy Score Weightings
-    similarity_scores = [similarity_score(title, sent) for sent in sents]
+    similarity_scores = [similarity_score(abs_sent, sent) for sent in sents]
     scored_sents = np.array(sent_values) + np.array(similarity_scores)
 
     # Apply Position Weights
@@ -104,18 +107,8 @@ def rank_sentences(doc, doc_matrix, feature_names, top_n=3):
 if __name__ == '__main__':
     # Load corpus data used to train the TF-IDF Transformer
     data = pickle.load(open('data.pkl', 'rb'))
-
-    # Load the document you wish to summarize
-    title = ''
-    document = ''
-
-    cleaned_document = clean_document(document)
-    doc = remove_stop_words(cleaned_document)
-
-    # Merge corpus data and new document data
-    data = [' '.join(document) for document in data]
-    train_data = set(data + [doc])
-
+    train_data = set(data)
+    #print train_data
     # Fit and Transform the term frequencies into a vector
     count_vect = CountVectorizer()
     count_vect = count_vect.fit(train_data)
@@ -125,16 +118,68 @@ if __name__ == '__main__':
     # Fit and Transform the TfidfTransformer
     tfidf = TfidfTransformer(norm="l2")
     tfidf.fit(freq_term_matrix)
-
+    # Merge corpus data and new document data
+    files = os.listdir('../..//processed_papers/')
+    abstract = ''
+    body = ''
     # Get the dense tf-idf matrix for the document
-    story_freq_term_matrix = count_vect.transform([doc])
-    story_tfidf_matrix = tfidf.transform(story_freq_term_matrix)
-    story_dense = story_tfidf_matrix.todense()
-    doc_matrix = story_dense.tolist()[0]
-
-    # Get Top Ranking Sentences and join them as a summary
-    top_sents = rank_sentences(doc, doc_matrix, feature_names)
-    summary = '.'.join([cleaned_document.split('.')[i]
-                        for i in [pair[0] for pair in top_sents]])
-    summary = ' '.join(summary.split())
-    print summary
+    #story_freq_term_matrix = count_vect.transform([doc])
+    #story_tfidf_matrix = tfidf.transform(story_freq_term_matrix)
+    #story_dense = story_tfidf_matrix.todense()
+    #doc_matrix = story_dense.tolist()[0]
+    json_array = {}
+    for file in files:
+        json_internal_array = {}
+	json_internal_array['document_id'] = file
+	json_internal_array['matched_sentences'] = {}
+	abstract = ''
+	sections = ''
+	abs_sentences = {}
+	body_sentences = {}
+	body = ''
+        print(file)
+        json_data = json.load(open('../../processed_papers/'+file))
+        if json_data["abstract_sentences"] is not None:
+	    abs_sentences = json_data["abstract_sentences"]
+        if json_data["body_sentences"] is not None:
+	    body_sentences = json_data["body_sentences"]
+	if (len(abs_sentences) == 0) or (len(body_sentences) == 0):
+            json_array[file] = json_internal_array
+	    continue
+        for idx,section in body_sentences.items():
+            if section is not None:
+		body += " "
+                body += section
+        title =  abstract
+        document =  body
+        abs_freq_term_matrix = count_vect.transform(list(abs_sentences.values()))
+	abs_sentences_idx = list(abs_sentences.keys())
+        abs_tfidf_matrix = tfidf.transform(abs_freq_term_matrix)
+        #abs_dense = abs_tfidf_matrix.todense()
+        body_freq_term_matrix = count_vect.transform(list(body_sentences.values()))
+	body_sentences_idx = list(body_sentences.keys())
+        body_tfidf_matrix = tfidf.transform(body_freq_term_matrix)
+        #body_dense = body_tfidf_matrix.todense()
+        resulting = abs_tfidf_matrix.dot(body_tfidf_matrix.T)
+        i = 0
+        for result in resulting:
+	    #print "Abs_Sent" + abs_sentences[i] + " Body Sentence " + body_sentences[result.argmax()]
+            json_internal_array['matched_sentences'][abs_sentences_idx[i]] = body_sentences_idx[result.argmax()]
+            i = i + 1
+        json_array[file] = json_internal_array
+    #story_freq_term_matrix = count_vect.transform([doc])
+    #story_tfidf_matrix = tfidf.transform(story_freq_term_matrix)
+    #story_dense = story_tfidf_matrix.todense()
+    #for sent in abs_sentences:
+        # Get Top Ranking Sentences and join them as a summary
+    #    top_sents = rank_sentences(doc, sent, doc_matrix, feature_names)
+     #   summary = '.'.join([cleaned_document.split('.')[i]
+     #                   for i in [pair[0] for pair in top_sents]])
+     #   summary = ' '.join(summary.split())
+     #   json_array[sent] = summary
+     #   print "Abstract Sentence:  " + sent + " Top two sentences from body:  " + summary
+    #print json.dumps(json_array)
+    outputfile = open('sentences.json', 'wb')
+    j = json.dumps(json_array, indent=4)
+    print >> outputfile,j
+    outputfile.close()

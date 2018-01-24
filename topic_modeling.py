@@ -3,6 +3,25 @@ import random
 import nltk
 from nltk.corpus import stopwords
 from gensim import corpora, models
+import os
+import json
+from gensim import corpora
+
+class MyCorpus(object):
+    def __iter__(self):
+        files = os.listdir('/home/irlab/research/processed_papers/')
+        text = ''
+        json_data={}
+        for fl in files:
+            print fl
+            json_data = json.load(open('/home/irlab/research/processed_papers/'+fl))
+            for  val in json_data["abstract_sentences"].values():
+                text += " "
+                text += val
+            for val in json_data['body_sentences'].values():
+                text += " "
+                text += val
+        yield dictionary.doc2bow(text.lower().split())
 
 stop = stopwords.words('english')
 add_stopwords = ['said', 'mln', 'billion', 'million', 'pct', 'would', 'inc', 'company', 'corp']
